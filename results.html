@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movie Results</title>
+
+</head>
+<body>
+    <h1>User's Movie Results</h1>
+
+    <h2>Your Favorites</h2>
+    <ul>
+        {% for movie in user_sorted_movies %}
+            <li>{{ movie.title }} - {{ movie.genre }} (IMDB ID: {{ movie.imdbId }})</li>
+        {% endfor %}
+    </ul>
+
+    <h2>Top Rated Movies of all time</h2>
+    <ul>
+        {% for movie in user_average_movies %}
+            <li>{{ movie.title }} - {{ movie.genre }} (IMDB ID: {{ movie.imdbId }})</li>
+        {% endfor %}
+    </ul>
+
+    <h2>Your Favorite Genre Movies</h2>
+    <ul>
+        {% for movie in user_favorite_movies %}
+            <li>{{ movie.title }} (IMDB ID: {{ movie.imdbId }})</li>
+        {% endfor %}
+    </ul>
+</body>
+</html>

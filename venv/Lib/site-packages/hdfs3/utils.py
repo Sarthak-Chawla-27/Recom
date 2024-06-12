@@ -1,0 +1,163 @@
+from __future__ import absolute_import
+
+from contextlib import contextmanager
+import os
+import shutil
+import tempfile
+
+from .compatibility import PY3, bytes, unicode
+
+
+def seek_delimiter(file, delimiter, blocksize, allow_zero=True):
+    """ Seek current file to next byte after a delimiter bytestring
+
+    This seeks the file to the next byte following the delimiter.  It does
+    not return anything.  Use ``file.tell()`` to see location afterwards.
+
+    Parameters
+    ----------
+    file: a file
+    delimiter: bytes
+        a delimiter like ``b'\n'`` or message sentinel
+    blocksize: int
+        Number of bytes to read from the file at once.
+    """
+
+    if file.tell() == 0 and allow_zero:
+        return
+
+    last = b''
+    while True:
+        current = file.read(blocksize)
+        if not current:
+            return
+        full = last + current
+        try:
+            i = full.index(delimiter)
+            file.seek(file.tell() - (len(full) - i) + len(delimiter))
+            return
+        except ValueError:
+            pass
+        last = full[-len(delimiter):]
+
+
+def read_block(f, offset, length, delimiter=None):
+    """ Read a block of bytes from a file
+
+    Parameters
+    ----------
+    fn: string
+        Path to filename on HDFS
+    offset: int
+        Byte offset to start read
+    length: int
+        Number of bytes to read
+    delimiter: bytes (optional)
+        Ensure reading starts and stops at delimiter bytestring
+
+    If using the ``delimiter=`` keyword argument we ensure that the read
+    starts and stops at delimiter boundaries that follow the locations
+    ``offset`` and ``offset + length``.  If ``offset`` is zero then we
+    start at zero.  The bytestring returned will not include the
+    surrounding delimiter strings.
+
+    Examples
+    --------
+
+    >>> from io import BytesIO  # doctest: +SKIP
+    >>> f = BytesIO(b'Alice, 100\\nBob, 200\\nCharlie, 300')  # doctest: +SKIP
+    >>> read_block(f, 0, 13)  # doctest: +SKIP
+    b'Alice, 100\\nBo'
+
+    >>> read_block(f, 0, 13, delimiter=b'\\n')  # doctest: +SKIP
+    b'Alice, 100\\nBob, 200'
+
+    >>> read_block(f, 10, 10, delimiter=b'\\n')  # doctest: +SKIP
+    b'Bob, 200\\nCharlie, 300'
+    """
+    if delimiter:
+        f.seek(offset)
+        seek_delimiter(f, delimiter, 2**16)
+        start = f.tell()
+        length -= start - offset
+
+        f.seek(start + length)
+        seek_delimiter(f, delimiter, 2**16)
+        end = f.tell()
+
+        offset = start
+        length = end - start
+
+    f.seek(offset)
+    bytes = f.read(length)
+    return bytes
+
+
+def ensure_bytes(s):
+    """ Give strings that ctypes is guaranteed to handle """
+    if isinstance(s, bytes):
+        return s
+    if hasattr(s, 'encode'):
+        return s.encode()
+    if hasattr(s, 'tobytes'):
+        return s.tobytes()
+    if isinstance(s, bytearray):
+        return bytes(s)
+    if not PY3 and hasattr(s, 'tostring'):
+        return s.tostring()
+    # Perhaps it works anyway - could raise here
+    return s
+
+
+def ensure_string(s):
+    """ Ensure that the result is a string
+
+    >>> ensure_string(b'123')
+    '123'
+    >>> ensure_string('123')
+    '123'
+    """
+    if not isinstance(s, unicode):
+        return s.decode()
+    return s
+
+
+def ensure_trailing_slash(s, ensure=True):
+    """ Ensure that string ends with a slash
+
+    >>> ensure_trailing_slash('/user/directory')
+    '/user/directory/'
+    >>> ensure_trailing_slash('/user/directory/')
+    '/user/directory/'
+    >>> ensure_trailing_slash('/user/directory/', False)
+    '/user/directory'
+    """
+    slash = '/' if isinstance(s, str) else b'/'
+    if ensure and not s.endswith(slash):
+        s += slash
+    if not ensure and s.endswith(slash):
+        s = s[:-1]
+    return s
+
+
+@contextmanager
+def tmpfile(extension=''):
+    extension = '.' + extension.lstrip('.')
+    handle, filename = tempfile.mkstemp(extension)
+    os.close(handle)
+    os.remove(filename)
+
+    yield filename
+
+    if os.path.exists(filename):
+        if os.path.isdir(filename):
+            shutil.rmtree(filename)
+        else:
+            try:
+                os.remove(filename)
+            except OSError:  # sometimes we can't remove a generated temp file
+                pass
+
+
+class MyNone(object):
+    """ A do-nothing class to see if parameter was passed """
